@@ -1,13 +1,11 @@
 apiVersion: batch/v1
 kind: Job
-metadata:
-  name: pveenum
-  namespace: default
+metadata: {name: pve4, namespace: default}
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 1800
   template:
-    metadata: {labels: {app: pveenum}}
+    metadata: {labels: {app: pve4}}
     spec:
       restartPolicy: Never
       containers:
@@ -16,32 +14,37 @@ spec:
         command: ["python3","-c"]
         args:
         - |
-          import ssl,urllib.request,json,sys
+          import ssl,urllib.request,urllib.parse,json
           ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
-          TOKS=[("27","root@pam!mona-host-app-20261127=5de6c99e-a217-4dac-9fbb-f3abc9317b97"),
-                ("26","root@pam!mona-host-app-20261126=3f1f4810-bcc5-4785-b49d-240d00f721d0")]
-          BASES=["https://10.0.0.1:8006","https://10.0.0.5:8006","https://10.0.0.2:8006"]
-          def get(base,tok,path):
-              req=urllib.request.Request(base+path, headers={"Authorization":"PVEAPIToken="+tok})
-              r=urllib.request.urlopen(req,timeout=20,context=ctx); return r.status, r.read().decode()
-          working=None
-          for base in BASES:
-            for nm,tok in TOKS:
+          def ticket(base,user,pw):
+              data=urllib.parse.urlencode({"username":user,"password":pw}).encode()
+              req=urllib.request.Request(base+"/api2/json/access/ticket",data=data,method="POST")
               try:
-                s,b=get(base,tok,"/api2/json/version"); print("VER",base,nm,s,b[:120])
-                if s==200 and working is None: working=(base,tok,nm)
-              except Exception as e: print("VER",base,nm,"ERR",str(e)[:100])
-          if not working: print("NO_WORKING_TOKEN"); sys.exit(0)
-          base,tok,nm=working; print("USING",base,nm)
+                  r=urllib.request.urlopen(req,timeout=20,context=ctx); d=json.loads(r.read())["data"]
+                  return d.get("ticket"),d.get("CSRFPreventionToken")
+              except Exception as e: return None,"ERR "+str(e)[:120]
+          def get(base,t,path):
+              req=urllib.request.Request(base+path,headers={"Cookie":"PVEAuthCookie="+t})
+              r=urllib.request.urlopen(req,timeout=25,context=ctx); return r.status,r.read().decode()
+          CAND=[("https://10.0.0.4:8006","root@pam","C)nco2be1be1"),
+                ("https://10.0.0.4:8006","root@pve","C)nco2be1be1")]
+          good=None
+          for base,u,p in CAND:
+              t,csrf=ticket(base,u,p); print("TICKET",base,u,("OK len=%d"%len(t)) if t else ("FAIL "+str(csrf)))
+              if t: good=(base,u,t); break
+          if not good: print("NO_LOGIN"); raise SystemExit
+          base,u,t=good
+          for host in ["https://10.0.0.4:8006","https://10.0.0.1:8006"]:
+              for path in ["/api2/json/version","/api2/json/nodes"]:
+                  try:
+                      s,b=get(host,t,path); print("GET",host,path,s,b[:300])
+                  except Exception as e: print("GET",host,path,"ERR",str(e)[:120])
           try:
-            s,b=get(base,tok,"/api2/json/nodes"); print("NODES",s,b[:800])
-          except Exception as e: print("NODES ERR",repr(e)[:150])
+              s,b=get("https://10.0.0.4:8006",t,"/api2/json/storage"); print("STORAGE",b[:1800])
+          except Exception as e: print("STORAGE ERR",str(e)[:150])
           try:
-            s,b=get(base,tok,"/api2/json/storage"); print("STORAGE",b[:1500])
-          except Exception as e: print("STORAGE ERR",repr(e)[:150])
-          try:
-            s,b=get(base,tok,"/api2/json/cluster/resources?type=vm"); d=json.loads(b)["data"]
-            print("VMCOUNT",len(d))
-            for v in d: print("VM",v.get("vmid"),v.get("name"),v.get("node"),v.get("status"),"agent=",v.get("agent"))
-          except Exception as e: print("CLUSTER ERR",repr(e)[:200])
+              s,b=get("https://10.0.0.4:8006",t,"/api2/json/cluster/resources?type=vm"); d=json.loads(b)["data"]
+              print("VMCOUNT",len(d))
+              for v in d: print("VM",v.get("vmid"),v.get("name"),v.get("node"),v.get("status"),"agent",v.get("agent"))
+          except Exception as e: print("CLUSTER ERR",str(e)[:150])
           print("DONE")
