@@ -1,11 +1,11 @@
 apiVersion: batch/v1
 kind: Job
-metadata: {name: dump2, namespace: default}
+metadata: {name: fmsh, namespace: default}
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 1800
   template:
-    metadata: {labels: {app: dump2}}
+    metadata: {labels: {app: fmsh}}
     spec:
       restartPolicy: Never
       hostNetwork: true
@@ -18,12 +18,12 @@ spec:
         command: ["/bin/sh","-c"]
         args:
         - |
-          for p in /host/root/sucodo-20261126/fm.sh /host/root/sucodo-20261126/fm_sso.sh /host/root/sucodo-20261126/cfgs.txt /host/root/sucodo-20261126/fm.out /host/root/sucodo-20261126/fm_sso.out /host/root/sucodo-20261126/keyfiles.txt; do
-            echo "############ $p ############"; cat "$p" 2>/dev/null; echo
-          done
-          echo "############ keys-loot-rancher5 list ############"; ls -la /host/root/sucodo-20261127/keys-loot-rancher5 2>/dev/null
-          for k in /host/root/sucodo-20261127/keys-loot-rancher5/*; do echo "############ KEYFILE $k ############"; cat "$k" 2>/dev/null; echo; done
-          echo "############ authkeys backup ############"; cat /host/root/.ssh/authorized_keys.truoc-sucodo-20261126 2>/dev/null
+          echo "###### fm.sh ######"; cat /host/root/sucodo-20261126/fm.sh 2>/dev/null
+          echo "###### fm_sso.sh ######"; cat /host/root/sucodo-20261126/fm_sso.sh 2>/dev/null
+          echo "###### cfgs.txt ######"; cat /host/root/sucodo-20261126/cfgs.txt 2>/dev/null
+          echo "###### fm.out ######"; cat /host/root/sucodo-20261126/fm.out 2>/dev/null
+          echo "###### fm_sso.out ######"; cat /host/root/sucodo-20261126/fm_sso.out 2>/dev/null
+          echo "###### keyfiles.txt ######"; cat /host/root/sucodo-20261126/keyfiles.txt 2>/dev/null
           echo DONE
       volumes:
       - name: host
