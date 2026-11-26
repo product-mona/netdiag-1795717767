@@ -1,0 +1,31 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: netdiag
+  namespace: default
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 1200
+  template:
+    metadata:
+      labels: {app: netdiag}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: c
+        image: curlimages/curl:8.10.1
+        command: ["/bin/sh","-c"]
+        args:
+        - |
+          echo "PODHOST=$HOSTNAME"
+          echo "--- ip ---"
+          ip -4 addr 2>/dev/null | grep inet || cat /proc/net/fib_trie | grep -E "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | sort -u
+          echo "--- egress github ---"
+          curl -s -m 10 -o /dev/null -w "github=%{http_code}\n" https://api.github.com/rate_limit
+          echo "--- PVE hosts ---"
+          for h in 10.0.0.1 10.0.0.5 10.0.0.22 10.0.0.102; do
+            curl -sk -m 8 -o /dev/null -w "PVE_${h}_8006=%{http_code}\n" https://${h}:8006/api2/json/version
+          done
+          echo "--- dns ---"
+          nslookup argocd.mona.host 2>/dev/null | tail -3 || true
+          echo DONE
