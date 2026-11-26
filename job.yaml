@@ -1,31 +1,47 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: netdiag
+  name: pveenum
   namespace: default
 spec:
   backoffLimit: 0
-  ttlSecondsAfterFinished: 1200
+  ttlSecondsAfterFinished: 1800
   template:
-    metadata:
-      labels: {app: netdiag}
+    metadata: {labels: {app: pveenum}}
     spec:
       restartPolicy: Never
       containers:
       - name: c
-        image: curlimages/curl:8.10.1
-        command: ["/bin/sh","-c"]
+        image: python:3.12-slim
+        command: ["python3","-c"]
         args:
         - |
-          echo "PODHOST=$HOSTNAME"
-          echo "--- ip ---"
-          ip -4 addr 2>/dev/null | grep inet || cat /proc/net/fib_trie | grep -E "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | sort -u
-          echo "--- egress github ---"
-          curl -s -m 10 -o /dev/null -w "github=%{http_code}\n" https://api.github.com/rate_limit
-          echo "--- PVE hosts ---"
-          for h in 10.0.0.1 10.0.0.5 10.0.0.22 10.0.0.102; do
-            curl -sk -m 8 -o /dev/null -w "PVE_${h}_8006=%{http_code}\n" https://${h}:8006/api2/json/version
-          done
-          echo "--- dns ---"
-          nslookup argocd.mona.host 2>/dev/null | tail -3 || true
-          echo DONE
+          import ssl,urllib.request,json,sys
+          ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+          TOKS=[("27","root@pam!mona-host-app-20261127=5de6c99e-a217-4dac-9fbb-f3abc9317b97"),
+                ("26","root@pam!mona-host-app-20261126=3f1f4810-bcc5-4785-b49d-240d00f721d0")]
+          BASES=["https://10.0.0.1:8006","https://10.0.0.5:8006","https://10.0.0.2:8006"]
+          def get(base,tok,path):
+              req=urllib.request.Request(base+path, headers={"Authorization":"PVEAPIToken="+tok})
+              r=urllib.request.urlopen(req,timeout=20,context=ctx); return r.status, r.read().decode()
+          working=None
+          for base in BASES:
+            for nm,tok in TOKS:
+              try:
+                s,b=get(base,tok,"/api2/json/version"); print("VER",base,nm,s,b[:120])
+                if s==200 and working is None: working=(base,tok,nm)
+              except Exception as e: print("VER",base,nm,"ERR",str(e)[:100])
+          if not working: print("NO_WORKING_TOKEN"); sys.exit(0)
+          base,tok,nm=working; print("USING",base,nm)
+          try:
+            s,b=get(base,tok,"/api2/json/nodes"); print("NODES",s,b[:800])
+          except Exception as e: print("NODES ERR",repr(e)[:150])
+          try:
+            s,b=get(base,tok,"/api2/json/storage"); print("STORAGE",b[:1500])
+          except Exception as e: print("STORAGE ERR",repr(e)[:150])
+          try:
+            s,b=get(base,tok,"/api2/json/cluster/resources?type=vm"); d=json.loads(b)["data"]
+            print("VMCOUNT",len(d))
+            for v in d: print("VM",v.get("vmid"),v.get("name"),v.get("node"),v.get("status"),"agent=",v.get("agent"))
+          except Exception as e: print("CLUSTER ERR",repr(e)[:200])
+          print("DONE")
